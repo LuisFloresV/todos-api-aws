@@ -1,0 +1,90 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: TODO's API.
+
+Parameters:
+  CognitoUserEmail:
+    Description: Email address of the created user
+    Type: String
+
+Globals:
+  Function:
+    Timeout: 3
+
+Resources:
+  TodosApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: dev
+      Cors: "'*'"
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt CognitoUserPool.Arn
+
+  CognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: TodosApiPool
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+      UsernameAttributes:
+        - email
+      Schema:
+        - AttributeDataType: String
+          Name: email
+          Required: false
+
+  CognitoUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref CognitoUserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+
+  UserPoolUser:
+    Type: AWS::Cognito::UserPoolUser
+    Properties:
+      DesiredDeliveryMediums:
+        - EMAIL
+      Username: !Ref CognitoUserEmail
+      UserPoolId: !Ref CognitoUserPool
+  TodosFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: createTodo
+      CodeUri: src/
+      Handler: app.lambdaHandler
+      Runtime: nodejs18.x
+      Policies:
+        - DynamoDBWritePolicy:
+            TableName: !Ref DynamoDbTable
+      Architectures:
+        - x86_64
+      Events:
+        CreateTodo:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TodosApi
+            Path: /
+            Method: POST
+
+  DynamoDbTable:
+    Type: AWS::Serverless::SimpleTable
+    Properties:
+      TableName: Todos
+
+Outputs:
+  CognitoID:
+    Description: The Cognito UserPool ID
+    Value: !Ref CognitoUserPool
+  CognitoClientID:
+    Description: The Cognito UserPool Client ID
+    Value: !Ref CognitoUserPoolClient
+  TodosApiUrl:
+    Description: Todos API URL
+    Value: !Sub "https://${TodosApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/"
